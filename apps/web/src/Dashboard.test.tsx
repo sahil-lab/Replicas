@@ -1,0 +1,302 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import Dashboard from './Dashboard'
+
+afterEach(() => {
+  window.localStorage.clear()
+  delete document.documentElement.dataset.theme
+  Reflect.deleteProperty(navigator, 'clipboard')
+})
+
+const system = {
+  service: 'replicas-orchestrator',
+  phase: 'phase-1',
+  database: 'up',
+  installationId: '05f22106-53a6-4794-bb1e-aef87b16bc55',
+  createdAt: '2026-11-11T10:00:00Z',
+  schemaVersion: 1,
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+describe('dashboard', () => {
+  it('renders real system metadata after an explicit loading state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
+    render(<Dashboard />)
+    expect(
+      screen.getByText('Connecting to the local stack...'),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('PostgreSQL connected')).toBeInTheDocument()
+    expect(screen.getByText(system.installationId)).toBeInTheDocument()
+    expect(screen.getByText(/No code is executed/)).toBeInTheDocument()
+  })
+
+  it('shows database failure and retries instead of displaying mock health', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json({ detail: 'Database unavailable.' }, 503))
+      .mockResolvedValueOnce(json(system))
+    render(<Dashboard />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Database unavailable.',
+    )
+    expect(screen.queryByText('PostgreSQL connected')).not.toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Retry connection' }),
+    )
+    expect(await screen.findByText('PostgreSQL connected')).toBeInTheDocument()
+  })
+
+  it('refreshes connection status without retaining stale success on failure', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(json({ detail: 'Database unavailable.' }, 503))
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh system status' }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Database unavailable.',
+    )
+    expect(screen.queryByText('PostgreSQL connected')).not.toBeInTheDocument()
+    expect(screen.getByText('Unavailable')).toBeInTheDocument()
+  })
+
+  it('rejects a success-shaped response that violates the contract', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      json({ ...system, database: 'mock' }),
+    )
+    render(<Dashboard />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'did not match the API contract',
+    )
+    expect(screen.queryByText('PostgreSQL connected')).not.toBeInTheDocument()
+  })
+
+  it('reports a network failure explicitly', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
+      new TypeError('fetch failed'),
+    )
+    render(<Dashboard />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Cannot reach the API',
+    )
+  })
+
+  it('submits numeric limits and clearly reports that execution is disabled', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(
+        json({
+          valid: true,
+          executionEnabled: false,
+          label: 'synthetic-demo',
+        }),
+      )
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check configuration' }),
+    )
+    expect(await screen.findByText('Configuration valid.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/No task was queued or executed/),
+    ).toBeInTheDocument()
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/v1/preflight',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          label: 'synthetic-demo',
+          timeoutSeconds: 300,
+          memoryMiB: 512,
+        }),
+      }),
+    )
+    await userEvent.type(screen.getByLabelText('Task label'), '-edited')
+    expect(screen.queryByText('Configuration valid.')).not.toBeInTheDocument()
+  })
+
+  it('renders server-side field validation without a success message', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(
+        json(
+          {
+            detail: 'Request validation failed.',
+            errors: { timeoutSeconds: 'must be less than or equal to 900' },
+          },
+          400,
+        ),
+      )
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check configuration' }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Request validation failed.',
+    )
+    expect(screen.getByLabelText('Timeout (seconds)')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(screen.queryByText('Configuration valid.')).not.toBeInTheDocument()
+  })
+
+  it('does not accept an unexpected task execution response', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(
+        json({
+          valid: true,
+          executionEnabled: true,
+          label: 'synthetic-demo',
+        }),
+      )
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check configuration' }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'did not match the API contract',
+    )
+    expect(screen.queryByText('Configuration valid.')).not.toBeInTheDocument()
+  })
+
+  it('previews the exact request body and shows the real response', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(
+        json({
+          valid: true,
+          executionEnabled: false,
+          label: 'synthetic-demo',
+        }),
+      )
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    const preview = screen.getByRole('group', {
+      name: 'Request and response preview',
+    })
+    expect(preview).toHaveTextContent('"timeoutSeconds": 300')
+    expect(preview).toHaveTextContent('Draft')
+
+    const timeout = screen.getByLabelText('Timeout (seconds)')
+    await userEvent.clear(timeout)
+    await userEvent.type(timeout, '120')
+    expect(preview).toHaveTextContent('"timeoutSeconds": 120')
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check configuration' }),
+    )
+    await screen.findByText('Configuration valid.')
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/v1/preflight',
+      expect.objectContaining({
+        body: JSON.stringify({
+          label: 'synthetic-demo',
+          timeoutSeconds: 120,
+          memoryMiB: 512,
+        }),
+      }),
+    )
+    expect(preview).toHaveTextContent('HTTP 200')
+    expect(preview).toHaveTextContent('"executionEnabled": false')
+  })
+
+  it('shows the rejected status and field errors in the preview', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(
+        json(
+          {
+            detail: 'Request validation failed.',
+            errors: { memoryMiB: 'must be greater than or equal to 128' },
+          },
+          400,
+        ),
+      )
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check configuration' }),
+    )
+    await screen.findByRole('alert')
+    const preview = screen.getByRole('group', {
+      name: 'Request and response preview',
+    })
+    expect(preview).toHaveTextContent('HTTP 400')
+    expect(preview).toHaveTextContent(
+      '"memoryMiB": "must be greater than or equal to 128"',
+    )
+  })
+
+  it('switches theme and remembers the choice', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(json(system)),
+    )
+    const first = render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    expect(document.documentElement.dataset.theme).toBe('midnight')
+    expect(screen.getByRole('button', { name: 'Midnight' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Daylight' }))
+    expect(document.documentElement.dataset.theme).toBe('daylight')
+    expect(window.localStorage.getItem('replicas.theme')).toBe('daylight')
+
+    first.unmount()
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    expect(screen.getByRole('button', { name: 'Daylight' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(document.documentElement.dataset.theme).toBe('daylight')
+  })
+
+  it('copies the installation identity when the clipboard is available', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Copy installation ID' }),
+    )
+    expect(
+      await screen.findByText('Installation ID copied.'),
+    ).toBeInTheDocument()
+    expect(writeText).toHaveBeenCalledWith(system.installationId)
+  })
+
+  it('reports when copying is not available instead of claiming success', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Copy installation ID' }),
+    )
+    expect(
+      await screen.findByText('Copying is not available in this browser.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Installation ID copied.'),
+    ).not.toBeInTheDocument()
+  })
+})

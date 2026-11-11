@@ -1,0 +1,11 @@
+package-lock.json
+**/node_modules/
+**/dist/
+**/target/
+**/coverage/
+**/test-results/
+**/playwright-report/
+.local/
+.tools/
+.replicas-playbook-extracted.txt
+*.pdf

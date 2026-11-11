@@ -1,0 +1,126 @@
+name: replicas
+
+x-api-environment: &api-environment
+  DATABASE_URL: jdbc:postgresql://db:5432/replicas?connectTimeout=2&socketTimeout=3
+  DATABASE_USER: replicas
+  DATABASE_PASSWORD: ${REPLICAS_DB_PASSWORD:?Use scripts/replicas.ps1 to generate local configuration}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: replicas
+      POSTGRES_USER: replicas
+      POSTGRES_PASSWORD: ${REPLICAS_DB_PASSWORD:?Use scripts/replicas.ps1 to generate local configuration}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U replicas -d replicas']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+
+  api:
+    image: replicas-api:local
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+      target: runtime
+    environment: *api-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '-q',
+          '--spider',
+          'http://127.0.0.1:8080/actuator/health/readiness',
+        ]
+      start_period: 45s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 128
+
+  web:
+    image: replicas-web:local
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+      target: runtime
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:8080/']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 96m
+    cpus: 0.25
+    pids_limit: 64
+
+  api-check:
+    profiles: [checks]
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+      target: check
+    environment: *api-environment
+    volumes:
+      - type: bind
+        source: ../../.local/reports/java
+        target: /workspace/services/api/target/surefire-reports
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+
+  web-check:
+    profiles: [checks]
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+      target: check
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+
+  e2e:
+    profiles: [checks]
+    build:
+      context: ../..
+      dockerfile: infra/docker/e2e.Dockerfile
+    environment:
+      BASE_URL: http://web:8080
+    volumes:
+      - type: bind
+        source: ../../.local/reports/e2e
+        target: /workspace/test-results
+    shm_size: 256m
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+
+volumes:
+  pgdata:

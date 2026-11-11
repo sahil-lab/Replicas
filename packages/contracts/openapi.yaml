@@ -1,0 +1,199 @@
+openapi: 3.1.0
+info:
+  title: Elastic Cloud Coding-Agent Orchestrator - Phase 1
+  version: 0.1.0
+  description: |
+    Independent, local-only prototype. These endpoints do not create or execute
+    tasks. Use synthetic inputs only. Task operations and authorization begin
+    in Phase 2; no authentication exemption applies to those future operations.
+servers:
+  - url: http://localhost:18110
+    description: Loopback-only development gateway
+security: []
+paths:
+  /api/v1/system:
+    get:
+      operationId: getSystem
+      summary: Read actual migrated installation metadata
+      responses:
+        '200':
+          description: Metadata was read successfully from PostgreSQL.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/preflight:
+    post:
+      operationId: checkPreflight
+      summary: Validate synthetic configuration without storing or executing it
+      description: |
+        No task, lease, checkpoint, or artifact is created. Limits are validated,
+        not enforced against running work, because execution is not implemented.
+        The gateway accepts bodies no larger than 8 KiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreflightRequest'
+      responses:
+        '200':
+          description: Configuration is valid; execution remains disabled.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreflightResult'
+        '400':
+          description: Invalid JSON, fields, scalar types, or constraint violation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Request exceeds the gateway's 8 KiB body limit.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /actuator/health/liveness:
+    get:
+      operationId: getLiveness
+      summary: Check process liveness independently of database availability
+      responses:
+        '200':
+          description: Process is live.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Process is unavailable.
+  /actuator/health/readiness:
+    get:
+      operationId: getReadiness
+      summary: Check process readiness including PostgreSQL connectivity
+      responses:
+        '200':
+          description: Process and database are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Process or database is not ready; do not route task traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+components:
+  headers:
+    RequestId:
+      description: API-generated correlation ID; not an authentication credential.
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unavailable:
+      description: API or database unavailable. No success response is substituted.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    SystemStatus:
+      type: object
+      additionalProperties: false
+      required:
+        [service, phase, database, installationId, createdAt, schemaVersion]
+      properties:
+        service:
+          type: string
+          const: replicas-orchestrator
+        phase:
+          type: string
+          const: phase-1
+        database:
+          type: string
+          const: up
+        installationId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        schemaVersion:
+          type: integer
+          const: 1
+    PreflightRequest:
+      type: object
+      additionalProperties: false
+      required: [label, timeoutSeconds, memoryMiB]
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '\S'
+          description: Non-blank synthetic label. Surrounding whitespace is stripped in the response.
+        timeoutSeconds:
+          type: integer
+          minimum: 1
+          maximum: 900
+        memoryMiB:
+          type: integer
+          minimum: 128
+          maximum: 2048
+    PreflightResult:
+      type: object
+      additionalProperties: false
+      required: [valid, executionEnabled, label]
+      properties:
+        valid:
+          type: boolean
+          const: true
+        executionEnabled:
+          type: boolean
+          const: false
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN, OUT_OF_SERVICE, UNKNOWN]
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        errors:
+          type: object
+          description: Field names and constraint messages, never rejected values.
+          additionalProperties:
+            type: string

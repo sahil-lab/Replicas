@@ -1,0 +1,28 @@
+{
+  "name": "replicas-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "npm run lint --workspace @replicas/web",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace @replicas/web",
+    "test:web": "npm run test --workspace @replicas/web",
+    "build:web": "npm run build --workspace @replicas/web",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "22.20.5",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2"
+  }
+}

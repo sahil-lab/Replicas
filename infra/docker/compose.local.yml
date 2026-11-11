@@ -1,0 +1,4 @@
+services:
+  web:
+    ports:
+      - '127.0.0.1:${REPLICAS_WEB_PORT:-18110}:8080'

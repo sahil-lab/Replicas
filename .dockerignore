@@ -1,0 +1,12 @@
+.git
+.local
+.tools
+.env*
+**/node_modules
+**/dist
+**/target
+**/coverage
+**/test-results
+**/playwright-report
+*.pdf
+.replicas-playbook-extracted.txt
