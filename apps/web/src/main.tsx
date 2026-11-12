@@ -6,6 +6,7 @@ import '@fontsource-variable/geist/wght.css'
 import '@fontsource-variable/geist-mono/wght.css'
 import './styles.css'
 import Dashboard from './Dashboard.tsx'
+import { applyMotion, readStoredMotion } from './motion.ts'
 import { applyTheme, readStoredTheme } from './theme.ts'
 
 const root = document.getElementById('root')
@@ -14,6 +15,7 @@ if (!root) {
 }
 
 applyTheme(readStoredTheme())
+applyMotion(readStoredMotion())
 
 createRoot(root).render(
   <StrictMode>

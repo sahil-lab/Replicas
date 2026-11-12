@@ -57,6 +57,18 @@ These commands do not start the browser stack; use the full gate for E2E.
   `docker info`. Do not restart a shared daemon or stop sibling projects.
 - **Port conflict:** set `$env:REPLICAS_WEB_PORT` before `up`. The binding stays
   loopback-only. Verification publishes no host ports.
+- **"All predefined address pools have been fully subnetted":** Docker has no
+  default network range left, usually because many Compose projects exist on
+  the machine. Do not prune networks that belong to other projects; a network
+  with no attached containers may only mean that its stack is stopped. Either
+  remove networks you own and no longer need, or give this project's
+  verification network an explicit range in an uncommitted Compose file such as
+  `.local/compose.network.yml`, passed as a second `--file`. The frontend check
+  needs no network:
+  `docker run --rm --network none replicas-check-web-check:latest`.
+- **Disk nearly full:** container builds can fill the drive and leave partial
+  writes. Check free space first, and do not prune Docker globally to recover
+  it; decide per project what can go.
 - **Initial downloads:** Maven, npm, and container images require network access.
   Keep dependencies locked and retry a failed download rather than skipping checks.
 - **Database authentication after deleting local config:** existing volumes retain

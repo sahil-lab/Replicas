@@ -6,6 +6,7 @@ import Dashboard from './Dashboard'
 afterEach(() => {
   window.localStorage.clear()
   delete document.documentElement.dataset.theme
+  delete document.documentElement.dataset.motion
   Reflect.deleteProperty(navigator, 'clipboard')
 })
 
@@ -298,5 +299,53 @@ describe('dashboard', () => {
     expect(
       screen.queryByText('Installation ID copied.'),
     ).not.toBeInTheDocument()
+  })
+
+  it('keeps the slider, the numeric field and the request preview in step', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    const slider = screen.getByRole('slider', { name: 'Adjust timeout' })
+    const field = screen.getByLabelText('Timeout (seconds)')
+    const preview = screen.getByRole('group', {
+      name: 'Request and response preview',
+    })
+    expect(slider).toHaveValue('300')
+
+    fireEvent.change(slider, { target: { value: '45' } })
+    expect(field).toHaveValue(45)
+    expect(preview).toHaveTextContent('"timeoutSeconds": 45')
+
+    // A typed value outside the range is still sent as typed; only the
+    // slider parks at its end, so the API remains the judge of validity.
+    await userEvent.clear(field)
+    await userEvent.type(field, '5000')
+    expect(slider).toHaveValue('900')
+    expect(preview).toHaveTextContent('"timeoutSeconds": 5000')
+  })
+
+  it('leaves animation off without a motion preference and remembers a change', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
+    render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    const toggle = screen.getByRole('button', { name: 'Animations' })
+    expect(document.documentElement.dataset.motion).toBe('off')
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(toggle)
+    expect(document.documentElement.dataset.motion).toBe('on')
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    expect(window.localStorage.getItem('replicas.motion')).toBe('on')
+    expect(screen.getByText('PostgreSQL connected')).toBeInTheDocument()
+  })
+
+  it('shows the flat illustration when WebGL is unavailable', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
+    const { container } = render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    expect(container.querySelector('.hero-stage')).toHaveAttribute(
+      'data-gl',
+      'fallback',
+    )
   })
 })

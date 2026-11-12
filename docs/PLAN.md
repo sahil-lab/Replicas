@@ -157,6 +157,118 @@ The executed verification used `finally` cleanup. Results are retained in
 The unchanged backend unit suite was not rerun for this UI-only change.
 Hosted CI remains unexecuted.
 
+## UI rebuild - 2026-11-11 (second pass)
+
+The user asked for a far more beautiful interface. This is still a Phase 1
+presentation change: no backend, API contract, database, or gateway-policy
+change, and nothing from Phase 2 onward.
+
+- **Type:** self-hosted Fraunces (display), Geist (interface), and Geist Mono
+  (data) from exact-pinned `@fontsource-variable/*` 5.3.0 packages (OFL-1.1).
+  No third-party requests; the content-security policy is unchanged.
+- **Themes:** Midnight (default) and Daylight, switched in the rail and
+  remembered in `localStorage`. The rail, hero, and console stay dark in both.
+- **Hero:** an SVG isometric stack with orbits that follows the real connection
+  state and desaturates on failure. It is hidden from assistive technology.
+- **Preflight console:** the exact request body that will be posted, the real
+  response or problem details with its HTTP status, and the contract limits.
+  The preview and the request are built from one object, so they cannot differ.
+- **System view:** the request path (browser, gateway, API, PostgreSQL) is
+  marked verified only by a successful database-backed response. It shows the
+  measured round trip of that request, and a copy button for the installation
+  ID that reports honestly when the browser has no clipboard access.
+- **Layout:** scroll-aware navigation, sticky mobile navigation, and container
+  queries so content responds to its own width rather than the viewport.
+- `ApiError` and the preflight result now carry the HTTP status.
+
+New files:
+[Icon.tsx](../apps/web/src/Icon.tsx),
+[StackIllustration.tsx](../apps/web/src/StackIllustration.tsx),
+[theme.ts](../apps/web/src/theme.ts),
+[useActiveSection.ts](../apps/web/src/useActiveSection.ts), and
+[favicon.svg](../apps/web/public/favicon.svg).
+Changed:
+[Dashboard.tsx](../apps/web/src/Dashboard.tsx),
+[styles.css](../apps/web/src/styles.css),
+[api.ts](../apps/web/src/api.ts),
+[main.tsx](../apps/web/src/main.tsx),
+[index.html](../apps/web/index.html),
+[vite.config.ts](../apps/web/vite.config.ts),
+[apps/web/package.json](../apps/web/package.json),
+[package-lock.json](../package-lock.json),
+[Dashboard.test.tsx](../apps/web/src/Dashboard.test.tsx),
+[smoke.spec.ts](../tests/e2e/smoke.spec.ts),
+[DECISIONS.md](DECISIONS.md), [TESTING.md](TESTING.md), and this ledger.
+
+### Observed verification of the rebuild
+
+| Check                | Result                                                                                                                                                                                                                                                                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend gate        | Prettier, Oxlint (zero warnings), strict TypeScript, the production build, and all 13 component tests passed (8 existing, 5 new). Run from the built check image with networking disabled.                                                                                                                                                            |
+| Browser/API gate     | 8 healthy scenarios passed against real services: real preflight, HTTP contracts, navigation plus a successful preflight at 1440, 1024, 768, 375 and 320 CSS pixels, and theme persistence across a reload.                                                                                                                                           |
+| Fonts and policy     | In the browser test all three font families loaded and the page logged no console or policy errors. The gateway's policy header is unchanged.                                                                                                                                                                                                         |
+| Layout assertions    | No horizontal overflow at the five widths; the preflight panel stays within the viewport; the heading reached by navigation is not covered by the sticky bar.                                                                                                                                                                                         |
+| Real database outage | 1 scenario passed: readiness and metadata fail, liveness stays up, and the dashboard shows the failure with no connection success.                                                                                                                                                                                                                    |
+| Visual inspection    | Real renderings inspected at 1440, 1280, 1024, 768, 375 and 320 px in Midnight, Daylight at 1440 and 375 px, plus the loading state, a real preflight success, and the hero with motion enabled. The outage and validation-error appearances were inspected using intercepted responses; that is not verification evidence, the outage test above is. |
+| Contrast             | 34 text/background pairs across both themes were computed; the lowest was 4.55:1, and the two lowest were then darkened further.                                                                                                                                                                                                                      |
+| Development runtime  | The final web image is serving at `http://localhost:18110`. Web, API and database are healthy, only `127.0.0.1:18110` is published, and the installation identity is unchanged.                                                                                                                                                                       |
+| Cleanup              | Verification containers and the temporary network were removed. No volumes were deleted.                                                                                                                                                                                                                                                              |
+
+Commands, run from the project root:
+
+```powershell
+$check = @(
+    '--ansi', 'never', '--project-name', 'replicas-check',
+    '--env-file', '.\.local\verification.env',
+    '--file', '.\infra\docker\compose.yml', '--profile', 'checks'
+)
+docker compose @check build web web-check e2e
+docker run --rm --network none --memory 768m --cpus 1 --pids-limit 128 replicas-check-web-check:latest
+
+# The second file is only needed while Docker's default address pools are exhausted.
+$isolated = @(
+    '--ansi', 'never', '--project-name', 'replicas-check',
+    '--env-file', '.\.local\verification.env',
+    '--file', '.\infra\docker\compose.yml',
+    '--file', '.\.local\compose.network.yml', '--profile', 'checks'
+)
+docker compose @isolated up --detach --no-build --wait --wait-timeout 180 db api web
+docker compose @isolated run --rm --no-deps -e TEST_MODE=healthy -e PLAYWRIGHT_OUTPUT_DIR=/workspace/test-results/ui3/healthy e2e
+docker compose @isolated stop db
+docker compose @isolated run --rm --no-deps -e TEST_MODE=outage -e PLAYWRIGHT_OUTPUT_DIR=/workspace/test-results/ui3/outage e2e
+docker compose @isolated down --remove-orphans
+```
+
+Results are retained in `.local/reports/e2e/ui3/`,
+`.local/ui3-frontend-check.log`, and `.local/ui3-e2e.log`.
+
+**Not run in this pass:** the backend suite (the backend is unchanged), the full
+`scripts/replicas.ps1 verify` command (see the network note below), and hosted CI.
+
+### Environment events during this pass
+
+These affect every project on this machine, not only Replicas.
+
+- **Disk full.** While preparing this pass, drive C: reached 0 bytes free. A
+  backup copy and a task-list write failed. No source file had been modified,
+  and later checks confirmed nothing was truncated. About 17.8 GB became free
+  after Docker Desktop was restarted at 22:37 local time; this session did not
+  restart it. About 15.7 GB was free at the end of this pass.
+- **Engine restart.** That restart stopped the Replicas development containers
+  (exit code 255). They were started again with project-scoped Compose and the
+  database kept its installation identity.
+- **Docker usage.** Docker reported 58.5 GB of images, 12.0 GB of container
+  layers, 10.3 GB of volumes and 6.5 GB of build cache across all projects.
+  No Docker cleanup was performed. Nearly all of it belongs to other projects,
+  and Docker's "reclaimable" figure counts stacks that are merely stopped.
+- **Network address pools exhausted.** Docker holds 35 networks and has no
+  default range left, so Compose cannot create `replicas-check_default` and
+  `scripts/replicas.ps1 verify` currently fails at network creation on this
+  machine. This pass used an explicit range in the uncommitted
+  `.local/compose.network.yml`. Other projects' networks were not removed.
+- **Rollback aid.** The repository has no commits, so a hash-verified copy of
+  the previous interface sources is kept in the ignored `.local/ui-v2-backup/`.
+
 ## Next action
 
 Await authorization for Phase 2. Begin by choosing the identity/tenant boundary,

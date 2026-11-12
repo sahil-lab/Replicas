@@ -61,3 +61,23 @@ Use real PostgreSQL for integration and smoke tests; do not substitute an
 in-memory database. Browser tests exercise the built UI through the gateway.
 The verification project is separate from the user's development stack.
 CI configuration is not evidence that a hosted CI run has passed.
+
+## ADR-007: Interface design system
+
+The dashboard uses self-hosted variable fonts (Fraunces, Geist, Geist Mono)
+from exact-pinned `@fontsource-variable` packages under the SIL Open Font
+License. Vite bundles them and the gateway serves them, so the page makes no
+third-party requests and the content-security policy stays unchanged. Asset
+inlining is disabled because that policy has no `data:` font source.
+
+Two themes share one token set: Midnight (default) and Daylight. The choice is
+stored in `localStorage` only. The rail, hero, and request console keep the
+night palette in both themes. Text colours are checked against WCAG AA.
+
+Content grids use container queries on the main content area, because the
+sidebar makes viewport width a poor proxy for available space.
+
+The interface shows only values it actually has: API metadata, the measured
+round trip of its own request, the request body it will send, and the response
+it received. Decoration is hidden from assistive technology, and planned phases
+are labelled as planned.
