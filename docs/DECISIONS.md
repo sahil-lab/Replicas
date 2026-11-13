@@ -70,14 +70,79 @@ License. Vite bundles them and the gateway serves them, so the page makes no
 third-party requests and the content-security policy stays unchanged. Asset
 inlining is disabled because that policy has no `data:` font source.
 
-Two themes share one token set: Midnight (default) and Daylight. The choice is
-stored in `localStorage` only. The rail, hero, and request console keep the
-night palette in both themes. Text colours are checked against WCAG AA.
+The page is one scrolling experience made of full-width colour blocks. Each
+section takes one tone (night, citron, lavender, or the theme's base tone) and
+components read only that tone's variables. Two themes, Midnight (default) and
+Daylight, change the base tone and the hero backdrop; the choice is stored in
+`localStorage` only. Body text colours are checked against WCAG AA per tone.
 
-Content grids use container queries on the main content area, because the
-sidebar makes viewport width a poor proxy for available space.
+Motion is a setting, not only a media query. `data-motion` on the root element
+starts from the system's reduced-motion preference, can be switched in the
+header, and is remembered. With motion off there is no boot sequence, no
+scroll-linked movement, no wheel glide, no pinned roadmap, no cursor follower,
+and each sculpture is a single still frame. Every piece of content and every
+control works either way.
+
+Script-driven animation is eased by elapsed time, never by a fixed amount per
+frame, so it behaves the same at 30, 60 or 144 frames a second. A frame is
+stamped with the time it began, which can be earlier than a clock reading taken
+a moment before, so progress is never allowed below zero.
+
+Motion must not cost layout. While the page scrolls or the pointer moves,
+script and CSS change only transforms, opacity and clipping. One animation
+frame serves every scroll effect and works in a fixed order: read the scroll
+position once, measure sizes only when they may have changed, then write.
+Anything that would lay the page out on every frame is done another way:
+letters are stretched, not re-weighted; a moving dot slides, it is not
+repositioned; a counter rolls strips of digits, it does not rewrite text.
+A browser check counts layouts and fails when a settled page needs more than
+two to scroll its whole length and back. Text that changes once on first view
+(the boot counter, the decoding labels) is the stated exception.
+
+Scrolling stays the browser's. With motion on, whole notches of a mouse wheel
+glide to their target. A touchpad's stream of small movements is left to the
+browser, which already scrolls it smoothly off the main thread. Anything else
+that moves the page (keys, links, the scrollbar, touch, another script)
+cancels a glide and wins. Pinch-zoom and sideways wheels are left alone.
+
+The hero sculpture is drawn with WebGL by code written for this project, with
+no 3D library. Since the fifth pass it is ordinary geometry (about 2,400
+triangles drawn in one call), not a shape traced per pixel, which is what made
+it too slow for integrated graphics. Each plate moves on its own springs, so
+the stack assembles, leans, fans out and settles like something with weight.
+Edges are softened in the shader, so the canvas needs no multisampling. It is
+decoration: hidden from assistive technology and never needed to use the page.
+It animates only on GPU renderers, while the hero is on screen and the tab is
+visible. If frames stay slow it lowers its resolution once, then stops. A CPU
+renderer gets one still frame. Without WebGL, or after the graphics context is
+lost, a flat SVG schematic stands in.
+
+The same renderer draws a second stack in the preflight console, sized from the
+two limits in the form: 6 to 21 plates for the timeout and 62% to 100% of full
+width for the memory. It illustrates the numbers typed and says so beside the
+drawing. It has no part in validation: only the API's answer changes how it is
+drawn. It runs on GPU renderers only, and only while on screen. Everywhere
+else the schematic follows the same numbers, because a CPU renderer would
+stall the sliders.
+
+The hero is pinned while the page slides over it. Below 560 px of viewport
+height it scrolls normally instead, so nothing in it is ever out of reach.
+
+Two more layouts depend on room. The roadmap becomes a pinned horizontal strip
+only at 1000 px wide and 620 px tall or more, with motion on; otherwise it is
+an ordinary list. The marker on its rail shows where the view is along the
+strip, never how far the work has come. The footer waits under the page only
+when all of it fits on screen. Focus moving into it scrolls it into view, and
+the block that reserves its scrolling room lets the pointer through.
+
+Text that is split up for animation keeps its name. Headings split into
+letters or words carry the full text as their accessible name, and labels that
+resolve out of scrambled characters keep an untouched copy for assistive
+technology.
 
 The interface shows only values it actually has: API metadata, the measured
-round trip of its own request, the request body it will send, and the response
-it received. Decoration is hidden from assistive technology, and planned phases
-are labelled as planned.
+round trip of its own request, the checks it measured during this visit, the
+request body it will send, and the response it received. The boot counter
+follows real milestones (typefaces loaded, first stack response) and gives up
+after about three seconds. Decoration is hidden from assistive technology, and
+planned phases are labelled as planned.

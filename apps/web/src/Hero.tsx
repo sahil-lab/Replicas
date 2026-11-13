@@ -1,9 +1,11 @@
-import type { Ref } from 'react'
+import { useRef, type Ref } from 'react'
 import { HeroCanvas } from './HeroCanvas'
 import { Icon } from './Icon'
+import { useKineticType } from './kinetic'
 import type { SystemState } from './model'
 import { useMagnetic } from './motion'
-import { Marquee, RingText, Star, Words } from './ui'
+import { useSpotlight } from './tilt'
+import { Decode, Letters, Marquee, RingText, Star } from './ui'
 
 type Props = {
   status: SystemState['status']
@@ -13,6 +15,10 @@ type Props = {
 
 export function Hero({ status, booted, pinRef }: Props) {
   const magnetic = useMagnetic(0.28)
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const lightRef = useRef<HTMLElement>(null)
+  useKineticType(titleRef, booted)
+  useSpotlight(lightRef)
 
   return (
     <section
@@ -26,18 +32,18 @@ export function Hero({ status, booted, pinRef }: Props) {
           <i className="orb orb-a" />
           <i className="orb orb-b" />
           <i className="orb orb-c" />
+          <i className="spotlight" ref={lightRef} />
         </div>
 
-        <div className="hero-meta">
+        <div className="hero-meta" data-cover="">
           <p>
-            Replicas Lab<span aria-hidden="true"> — </span>
-            <span className="sr-only">, </span>
-            Coding-agent orchestrator
+            <Decode
+              text="Replicas Lab — Coding-agent orchestrator"
+              active={booted}
+            />
           </p>
           <p>
-            Phase 01<span aria-hidden="true"> / </span>
-            <span className="sr-only">, </span>
-            Working skeleton
+            <Decode text="Phase 01 / Working skeleton" active={booted} />
           </p>
         </div>
 
@@ -46,21 +52,22 @@ export function Hero({ status, booted, pinRef }: Props) {
             className="hero-title"
             id="page-title"
             aria-label="Build boldly. Start safely."
+            ref={titleRef}
           >
-            <span className="line line-back">
-              <Words text="Build boldly." />
+            <span className="line line-back" data-cover="">
+              <Letters text="Build boldly." />
             </span>
-            <span className="line line-outline">
-              <Words text="Build boldly." />
+            <span className="line line-outline" data-cover="">
+              <Letters text="Build boldly." />
             </span>
-            <span className="line line-front">
-              <Words text="Start safely." />
+            <span className="line line-front" data-cover="">
+              <Letters text="Start safely." />
             </span>
           </h1>
           <HeroCanvas state={status} booted={booted} />
         </div>
 
-        <div className="hero-foot">
+        <div className="hero-foot" data-cover="">
           <div className="hero-intro">
             <p className="hero-lede">
               A control room for coding agents, built before the first agent
@@ -102,6 +109,8 @@ export function Hero({ status, booted, pinRef }: Props) {
           <span>Independent prototype</span>
           <Star />
         </Marquee>
+
+        <i className="hero-dim" data-cover="" aria-hidden="true" />
       </div>
     </section>
   )

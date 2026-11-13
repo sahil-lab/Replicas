@@ -1,13 +1,62 @@
+import type { CSSProperties } from 'react'
 import { Icon, type IconName } from './Icon'
-import { type CopyState, type SystemState } from './model'
+import {
+  formatMs,
+  type CopyState,
+  type Sample,
+  type SystemState,
+} from './model'
 import { useReveal } from './motion'
-import { CountUp } from './ui'
+import { Decode, Heading, Odometer } from './ui'
 
 type Props = {
   system: SystemState
+  history: readonly Sample[]
   copyState: CopyState
   onRefresh: () => void
   onCopy: (id: string) => void
+}
+
+// Every check made during this visit, drawn to scale against the slowest.
+function Trace({ history }: { history: readonly Sample[] }) {
+  const timings = history.flatMap((sample) =>
+    'ms' in sample ? [sample.ms] : [],
+  )
+  const slowest = Math.max(...timings, 1)
+  const failed = history.length - timings.length
+  const summary = [
+    `${history.length} ${history.length === 1 ? 'check' : 'checks'} this visit`,
+    timings.length > 1 ? `fastest ${formatMs(Math.min(...timings))}` : '',
+    failed > 0 ? `${failed} failed` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  return (
+    <div className="trace">
+      <ol className="trace-bars" aria-label="Checks measured this visit">
+        {history.map((sample, index) =>
+          'ms' in sample ? (
+            <li
+              key={index}
+              style={
+                {
+                  '--h': `${Math.max(6, (sample.ms / slowest) * 100).toFixed(1)}%`,
+                } as CSSProperties
+              }
+            >
+              <span className="sr-only">{formatMs(sample.ms)}</span>
+            </li>
+          ) : (
+            <li key={index} data-failed="">
+              <span className="sr-only">Failed check</span>
+            </li>
+          ),
+        )}
+      </ol>
+      <p className="trace-caption">{summary}</p>
+    </div>
+  )
 }
 
 function PathNode({
@@ -40,7 +89,13 @@ function PathNode({
   )
 }
 
-export function SystemSection({ system, copyState, onRefresh, onCopy }: Props) {
+export function SystemSection({
+  system,
+  history,
+  copyState,
+  onRefresh,
+  onCopy,
+}: Props) {
   const reveal = useReveal()
   const ready = system.status === 'ready'
 
@@ -56,8 +111,10 @@ export function SystemSection({ system, copyState, onRefresh, onCopy }: Props) {
           02
         </span>
         <div className="section-title">
-          <p className="eyebrow">Instrument 02 · From your API</p>
-          <h2 id="system-heading">Foundation status</h2>
+          <p className="eyebrow">
+            <Decode text="Instrument 02 · From your API" />
+          </p>
+          <Heading id="system-heading" text="Foundation status" />
         </div>
         <p className="section-lede">
           Real connections. Nothing simulated. One successful request proves
@@ -75,7 +132,7 @@ export function SystemSection({ system, copyState, onRefresh, onCopy }: Props) {
           <p className="readout-figure">
             <span className="readout-value">
               {system.status === 'ready' ? (
-                <CountUp value={Math.max(1, Math.round(system.elapsedMs))} />
+                <Odometer value={Math.max(1, Math.round(system.elapsedMs))} />
               ) : (
                 '—'
               )}
@@ -85,6 +142,7 @@ export function SystemSection({ system, copyState, onRefresh, onCopy }: Props) {
           <p className="readout-caption">
             Round trip of the last metadata request, measured in this browser.
           </p>
+          {history.length > 0 && <Trace history={history} />}
         </div>
 
         <div className="signal-status">

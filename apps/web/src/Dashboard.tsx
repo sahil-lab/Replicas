@@ -7,30 +7,33 @@ import {
   type PreflightOutcome,
 } from './api'
 import { Cursor } from './Cursor'
+import { enableWheelInertia, subscribeScroll } from './frame'
 import { Header } from './Header'
 import { Hero } from './Hero'
 import {
-  sectionIds,
   type CopyState,
   type PreflightFailure,
+  type Sample,
   type SystemState,
 } from './model'
-import { MotionContext, subscribeScroll, useMotionSetting } from './motion'
+import { hasFinePointer, MotionContext, useMotionSetting } from './motion'
 import { PreflightSection } from './PreflightSection'
 import { Preloader } from './Preloader'
 import { About, Footer, Roadmap } from './Sections'
 import { SystemSection } from './SystemSection'
 import { useTheme } from './theme'
-import { useActiveSection } from './useActiveSection'
+
+// Enough checks to show a trend without the bars becoming hairlines.
+const historyLength = 16
 
 export default function Dashboard() {
   const [theme, chooseTheme] = useTheme()
   const [motion, chooseMotion] = useMotionSetting()
-  const activeSection = useActiveSection(sectionIds, 'overview')
   // The boot sequence plays once, and only when motion was on at load.
   const [intro] = useState(() => motion === 'on')
   const [booted, setBooted] = useState(() => motion !== 'on')
   const [system, setSystem] = useState<SystemState>({ status: 'loading' })
+  const [history, setHistory] = useState<Sample[]>([])
   const [reload, setReload] = useState(0)
   const [label, setLabel] = useState('synthetic-demo')
   const [timeout, setTimeoutValue] = useState('300')
@@ -46,19 +49,19 @@ export default function Dashboard() {
     const controller = new AbortController()
     let active = true
     const started = performance.now()
+    const record = (sample: Sample) =>
+      setHistory((samples) => [...samples, sample].slice(-historyLength))
     getSystem(controller.signal)
       .then((data) => {
-        if (active) {
-          setSystem({
-            status: 'ready',
-            data,
-            elapsedMs: performance.now() - started,
-            checkedAt: new Date(),
-          })
-        }
+        if (!active) return
+        const elapsedMs = performance.now() - started
+        setSystem({ status: 'ready', data, elapsedMs, checkedAt: new Date() })
+        record({ ms: elapsedMs })
       })
       .catch((error: unknown) => {
-        if (active) setSystem({ status: 'error', message: errorMessage(error) })
+        if (!active) return
+        setSystem({ status: 'error', message: errorMessage(error) })
+        record({ failed: true })
       })
     return () => {
       active = false
@@ -72,25 +75,42 @@ export default function Dashboard() {
     return () => window.clearTimeout(timer)
   }, [copyState])
 
+  useEffect(() => {
+    if (motion !== 'on' || !hasFinePointer()) return
+    return enableWheelInertia()
+  }, [motion])
+
   // The hero stays pinned while the page slides over it. Once it is fully
   // covered it is hidden, so it costs nothing and cannot take focus.
   useEffect(() => {
-    return subscribeScroll(() => {
-      const pin = pinRef.current
-      if (pin) {
-        const height = Math.max(pin.offsetHeight, 1)
-        const covered = Math.min(window.scrollY / height, 1)
-        const passed = pin.parentElement?.offsetHeight ?? height
-        pin.style.setProperty('--hp', covered.toFixed(4))
-        pin.toggleAttribute('data-covered', window.scrollY >= passed)
-      }
-      const bar = progressRef.current
-      if (bar) {
-        const range = document.documentElement.scrollHeight - window.innerHeight
-        const read = range > 0 ? Math.min(window.scrollY / range, 1) : 0
-        bar.style.transform = `scaleX(${read.toFixed(4)})`
-      }
-    })
+    const pin = pinRef.current
+    if (!pin) return
+    // The parts of the hero that move or fade as it is covered. Each is told
+    // how far along the cover is, so nothing else has to be restyled.
+    const parts = [pin, ...pin.querySelectorAll<HTMLElement>('[data-cover]')]
+    let pinHeight = 1
+    let heroHeight = 1
+    let shown = -1
+    return subscribeScroll(
+      (frame) => {
+        const covered = Math.min(frame.y / pinHeight, 1)
+        if (covered !== shown) {
+          shown = covered
+          const value = covered.toFixed(4)
+          for (const part of parts) part.style.setProperty('--hp', value)
+        }
+        pin.toggleAttribute('data-covered', frame.y >= heroHeight)
+        const bar = progressRef.current
+        if (bar) {
+          const read = frame.max > 0 ? Math.min(frame.y / frame.max, 1) : 0
+          bar.style.transform = `scaleX(${read.toFixed(4)})`
+        }
+      },
+      () => {
+        pinHeight = Math.max(pin.offsetHeight, 1)
+        heroHeight = pin.parentElement?.offsetHeight ?? pinHeight
+      },
+    )
   }, [])
 
   const reveal = useCallback(() => setBooted(true), [])
@@ -149,7 +169,6 @@ export default function Dashboard() {
         <div className="progress" ref={progressRef} aria-hidden="true" />
 
         <Header
-          active={activeSection}
           system={system}
           theme={theme}
           onTheme={chooseTheme}
@@ -187,6 +206,7 @@ export default function Dashboard() {
             />
             <SystemSection
               system={system}
+              history={history}
               copyState={copyState}
               onRefresh={refreshSystem}
               onCopy={(id) => {

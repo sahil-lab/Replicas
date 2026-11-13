@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Dashboard from './Dashboard'
+import { MotionContext } from './motion'
+import { Odometer } from './ui'
 
 afterEach(() => {
   window.localStorage.clear()
@@ -36,6 +38,24 @@ describe('dashboard', () => {
     expect(await screen.findByText('PostgreSQL connected')).toBeInTheDocument()
     expect(screen.getByText(system.installationId)).toBeInTheDocument()
     expect(screen.getByText(/No code is executed/)).toBeInTheDocument()
+    // Headings and labels are split up for animation; their names must not be.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName(
+      'Build boldly. Start safely.',
+    )
+    for (const name of [
+      'Configuration preflight',
+      'Foundation status',
+      'A little further down the road.',
+    ]) {
+      expect(
+        screen.getByRole('heading', { level: 2, name }),
+      ).toBeInTheDocument()
+    }
+    expect(
+      screen.getByText('Instrument 01 · Validation only', {
+        selector: '.sr-only',
+      }),
+    ).toBeInTheDocument()
   })
 
   it('shows database failure and retries instead of displaying mock health', async () => {
@@ -59,6 +79,10 @@ describe('dashboard', () => {
       .mockResolvedValueOnce(json({ detail: 'Database unavailable.' }, 503))
     render(<Dashboard />)
     await screen.findByText('PostgreSQL connected')
+    const checks = screen.getByRole('list', {
+      name: 'Checks measured this visit',
+    })
+    expect(checks.children).toHaveLength(1)
     await userEvent.click(
       screen.getByRole('button', { name: 'Refresh system status' }),
     )
@@ -67,6 +91,12 @@ describe('dashboard', () => {
     )
     expect(screen.queryByText('PostgreSQL connected')).not.toBeInTheDocument()
     expect(screen.getByText('Unavailable')).toBeInTheDocument()
+    // The failed check joins the measured one; neither is invented.
+    expect(checks.children).toHaveLength(2)
+    expect(checks.lastElementChild).toHaveTextContent('Failed check')
+    expect(
+      screen.getByText('2 checks this visit · 1 failed'),
+    ).toBeInTheDocument()
   })
 
   it('rejects a success-shaped response that violates the contract', async () => {
@@ -339,7 +369,32 @@ describe('dashboard', () => {
     expect(screen.getByText('PostgreSQL connected')).toBeInTheDocument()
   })
 
-  it('shows the flat illustration when WebGL is unavailable', async () => {
+  it('rolls the latency as digits and keeps the plain number for readers', () => {
+    const { container } = render(
+      <MotionContext value="on">
+        <Odometer value={166} />
+      </MotionContext>,
+    )
+    // Assistive technology gets the number; the rolling digits are decoration.
+    expect(screen.getByText('166')).toHaveClass('sr-only')
+    expect(container.querySelector('.odometer-digits')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    )
+    // One column per digit, each headed for its own digit a full turn round.
+    const columns = container.querySelectorAll<HTMLElement>('.odometer-column')
+    expect(
+      Array.from(columns, (column) => column.style.getPropertyValue('--d')),
+    ).toEqual(['11', '16', '16'])
+  })
+
+  it('shows the latency as a plain number when animation is off', () => {
+    const { container } = render(<Odometer value={166} />)
+    expect(screen.getByText('166')).toBeInTheDocument()
+    expect(container.querySelector('.odometer-column')).toBeNull()
+  })
+
+  it('shows the flat schematic when WebGL is unavailable', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json(system))
     const { container } = render(<Dashboard />)
     await screen.findByText('PostgreSQL connected')
@@ -347,5 +402,44 @@ describe('dashboard', () => {
       'data-gl',
       'fallback',
     )
+    expect(
+      container.querySelectorAll('.hero-stage .schematic-plate'),
+    ).toHaveLength(21)
+  })
+
+  it('draws the preview from the limits and leaves validity to the API', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(json(system))
+      .mockResolvedValueOnce(
+        json({ detail: 'Request validation failed.' }, 400),
+      )
+    const { container } = render(<Dashboard />)
+    await screen.findByText('PostgreSQL connected')
+    const plates = () =>
+      container.querySelectorAll('.preview-stage .schematic-plate').length
+    const slider = screen.getByRole('slider', { name: 'Adjust timeout' })
+    const drawing = container.querySelector('.preview-stage .schematic')
+    expect(plates()).toBe(11)
+
+    fireEvent.change(slider, { target: { value: '900' } })
+    expect(plates()).toBe(21)
+    fireEvent.change(slider, { target: { value: '1' } })
+    expect(plates()).toBe(6)
+
+    // Beyond the contract the drawing parks at its largest and stays neutral:
+    // only the API's answer changes how it is drawn.
+    const field = screen.getByLabelText('Timeout (seconds)')
+    await userEvent.clear(field)
+    await userEvent.type(field, '5000')
+    expect(plates()).toBe(21)
+    expect(drawing).toHaveAttribute('data-state', 'ready')
+
+    await userEvent.clear(field)
+    await userEvent.type(field, '900')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check configuration' }),
+    )
+    await screen.findByRole('alert')
+    expect(drawing).toHaveAttribute('data-state', 'error')
   })
 })

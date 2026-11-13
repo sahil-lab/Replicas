@@ -33,13 +33,19 @@ export function Preloader({
     if (phase !== 'loading') return
     if (startedRef.current === 0) startedRef.current = window.performance.now()
     let frame = 0
+    let last = 0
     const step = (now: number) => {
       const elapsed = now - startedRef.current
+      // Eased by elapsed time, so a slow device is not kept waiting longer.
+      const passed = last === 0 ? 16 : Math.min(now - last, 250)
+      last = now
       const target =
         elapsed > 3200 || (fonts && settled) ? 100 : fonts ? 74 : 36
       valueRef.current = Math.min(
         target,
-        valueRef.current + (target - valueRef.current) * 0.09 + 0.15,
+        valueRef.current +
+          (target - valueRef.current) * (1 - Math.exp(-passed / 170)) +
+          passed * 0.009,
       )
       const counter = counterRef.current
       if (counter) {

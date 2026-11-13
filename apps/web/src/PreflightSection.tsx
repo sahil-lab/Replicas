@@ -1,9 +1,11 @@
-import { Fragment, type CSSProperties, type FormEvent } from 'react'
+import { Fragment, useRef, type CSSProperties, type FormEvent } from 'react'
 import type { PreflightOutcome, PreflightRequest } from './api'
 import { Icon } from './Icon'
-import { limits, type PreflightFailure } from './model'
+import { limits, stackShape, type PreflightFailure } from './model'
 import { useReveal } from './motion'
-import { RingText } from './ui'
+import { StackPreview } from './StackPreview'
+import { useTilt } from './tilt'
+import { Decode, Heading, RingText } from './ui'
 
 type Props = {
   label: string
@@ -76,6 +78,8 @@ export function PreflightSection({
   onSubmit,
 }: Props) {
   const reveal = useReveal()
+  const consoleRef = useRef<HTMLDivElement>(null)
+  useTilt(consoleRef)
   const timeoutSlider = sliderPosition(
     configuration.timeoutSeconds,
     limits.timeout.min,
@@ -99,6 +103,13 @@ export function PreflightSection({
   const seal = outcome
     ? 'Valid • Not executed • Valid • Not executed • '
     : 'Not accepted • Nothing ran • Not accepted • '
+  const shape = stackShape(
+    configuration.timeoutSeconds,
+    configuration.memoryMiB,
+  )
+  const result = busy ? 'busy' : outcome ? 'ok' : failure ? 'bad' : 'idle'
+  const measure = (value: number, unit: string) =>
+    Number.isFinite(value) ? `${value} ${unit}` : '—'
 
   return (
     <section
@@ -112,8 +123,10 @@ export function PreflightSection({
           01
         </span>
         <div className="section-title">
-          <p className="eyebrow">Instrument 01 · Validation only</p>
-          <h2 id="preflight-heading">Configuration preflight</h2>
+          <p className="eyebrow">
+            <Decode text="Instrument 01 · Validation only" />
+          </p>
+          <Heading id="preflight-heading" text="Configuration preflight" />
         </div>
         <p className="section-lede">
           Set the boundaries and the API checks them against its contract. Use
@@ -282,6 +295,28 @@ export function PreflightSection({
               </div>
             </div>
           )}
+
+          <div className="rules">
+            <p className="rules-title">Contract</p>
+            <dl className="contract">
+              <div>
+                <dt>label</dt>
+                <dd>1 to 80 characters, not blank</dd>
+              </div>
+              <div>
+                <dt>timeoutSeconds</dt>
+                <dd>integer, 1 to 900</dd>
+              </div>
+              <div>
+                <dt>memoryMiB</dt>
+                <dd>integer, 128 to 2048</dd>
+              </div>
+              <div>
+                <dt>other fields</dt>
+                <dd>rejected</dd>
+              </div>
+            </dl>
+          </div>
         </div>
 
         <div className="console-wrap" ref={reveal} data-reveal>
@@ -289,6 +324,7 @@ export function PreflightSection({
             className="console"
             role="group"
             aria-label="Request and response preview"
+            ref={consoleRef}
           >
             <div className="console-bar">
               <span className="console-dots" aria-hidden="true">
@@ -303,6 +339,52 @@ export function PreflightSection({
               <span className="console-badge" data-kind={badge.kind}>
                 {badge.text}
               </span>
+            </div>
+            <div className="viewport" data-result={result}>
+              <div className="viewport-frame">
+                <StackPreview
+                  count={shape.count}
+                  width={shape.width}
+                  result={result}
+                />
+                <div
+                  className="ruler ruler-y"
+                  aria-hidden="true"
+                  style={
+                    {
+                      '--fill': `${(shape.time * 100).toFixed(2)}%`,
+                    } as CSSProperties
+                  }
+                >
+                  <span className="ruler-name">Timeout</span>
+                  <span className="ruler-value">
+                    {measure(configuration.timeoutSeconds, 's')}
+                  </span>
+                  <span className="ruler-track">
+                    <i />
+                  </span>
+                </div>
+                <div
+                  className="ruler ruler-x"
+                  aria-hidden="true"
+                  style={
+                    {
+                      '--fill': `${(shape.memory * 100).toFixed(2)}%`,
+                    } as CSSProperties
+                  }
+                >
+                  <span className="ruler-track">
+                    <i />
+                  </span>
+                  <span className="ruler-name">Memory</span>
+                  <span className="ruler-value">
+                    {measure(configuration.memoryMiB, 'MiB')}
+                  </span>
+                </div>
+              </div>
+              <p className="viewport-note">
+                Drawn from the limits you set. Nothing is running.
+              </p>
             </div>
             <div className="console-body">
               <p className="console-label">Request body</p>
@@ -327,32 +409,12 @@ export function PreflightSection({
                   posted.
                 </p>
               )}
-              <div className="console-contract">
-                <p className="console-label">Contract</p>
-                <dl className="contract">
-                  <div>
-                    <dt>label</dt>
-                    <dd>1 to 80 characters, not blank</dd>
-                  </div>
-                  <div>
-                    <dt>timeoutSeconds</dt>
-                    <dd>integer, 1 to 900</dd>
-                  </div>
-                  <div>
-                    <dt>memoryMiB</dt>
-                    <dd>integer, 128 to 2048</dd>
-                  </div>
-                  <div>
-                    <dt>other fields</dt>
-                    <dd>rejected</dd>
-                  </div>
-                </dl>
-              </div>
             </div>
             <p className="console-foot">
               <Icon name="lock" size={13} />
               Not stored. Not executed.
             </p>
+            <i className="console-glare" data-glare="" aria-hidden="true" />
           </div>
           {(outcome || failure) && (
             <span

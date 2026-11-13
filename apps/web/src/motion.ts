@@ -6,6 +6,7 @@ import {
   useState,
   type RefObject,
 } from 'react'
+import { subscribeScroll, type ScrollFrame } from './frame'
 
 export type Motion = 'on' | 'off'
 
@@ -68,43 +69,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
-// One passive listener and one animation frame serve every scroll effect.
-const scrollSubscribers = new Set<() => void>()
-let scrollFrame = 0
-
-function flushScroll() {
-  scrollFrame = 0
-  for (const subscriber of scrollSubscribers) subscriber()
-}
-
-function scheduleScroll() {
-  if (scrollFrame !== 0) return
-  if (typeof window.requestAnimationFrame !== 'function') {
-    flushScroll()
-    return
-  }
-  scrollFrame = window.requestAnimationFrame(flushScroll)
-}
-
-export function subscribeScroll(subscriber: () => void): () => void {
-  if (scrollSubscribers.size === 0) {
-    window.addEventListener('scroll', scheduleScroll, { passive: true })
-    window.addEventListener('resize', scheduleScroll)
-  }
-  scrollSubscribers.add(subscriber)
-  scheduleScroll()
-  return () => {
-    scrollSubscribers.delete(subscriber)
-    if (scrollSubscribers.size > 0) return
-    window.removeEventListener('scroll', scheduleScroll)
-    window.removeEventListener('resize', scheduleScroll)
-    if (scrollFrame !== 0) {
-      window.cancelAnimationFrame(scrollFrame)
-      scrollFrame = 0
-    }
-  }
-}
-
 let revealObserver: IntersectionObserver | null = null
 
 function observeReveal(node: Element) {
@@ -150,13 +114,19 @@ export function useScrollWords(ref: RefObject<HTMLElement | null>) {
     if (!node || !enabled) return
     const words = Array.from(node.querySelectorAll<HTMLElement>('.w'))
     let lit = 0
-    const update = () => {
+    // Where the paragraph sits on the page, measured only when sizes change.
+    let top = 0
+    let height = 0
+    const measure = () => {
       const rect = node.getBoundingClientRect()
-      const viewport = window.innerHeight
-      const start = viewport * 0.86
-      const end = viewport * 0.4
+      top = rect.top + window.scrollY
+      height = rect.height
+    }
+    const update = (frame: ScrollFrame) => {
+      const start = frame.height * 0.86
+      const end = frame.height * 0.4
       const progress = clamp(
-        (start - rect.top) / (rect.height + start - end),
+        (start - (top - frame.y)) / (height + start - end),
         0,
         1,
       )
@@ -169,7 +139,7 @@ export function useScrollWords(ref: RefObject<HTMLElement | null>) {
       }
       lit = next
     }
-    const unsubscribe = subscribeScroll(update)
+    const unsubscribe = subscribeScroll(update, measure)
     return () => {
       unsubscribe()
       for (const word of words) word.removeAttribute('data-lit')

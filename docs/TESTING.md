@@ -68,7 +68,18 @@ These commands do not start the browser stack; use the full gate for E2E.
   `docker run --rm --network none replicas-check-web-check:latest`.
 - **Disk nearly full:** container builds can fill the drive and leave partial
   writes. Check free space first, and do not prune Docker globally to recover
-  it; decide per project what can go.
+  it; decide per project what can go. Free space can also fall with no build
+  running, because Windows grows its page file when memory is short. That
+  space is not Docker's to give back; it usually returns after a restart.
+- **"timeout waiting for dependencies" after the machine slept:** the startup
+  wait is counted by the host, so a sleep during startup uses it up while the
+  containers are frozen. Nothing is wrong with the stack. Run the command
+  again.
+- **Judging smoothness:** the browser tests draw on the CPU, so their timings
+  say nothing about frame rate. What they can and do check is that a settled
+  page scrolls, and the headline follows the pointer, without the browser
+  laying the page out again. Frame pacing has to be measured in a browser
+  that uses the machine's GPU; [PLAN.md](PLAN.md) records how that was done.
 - **Initial downloads:** Maven, npm, and container images require network access.
   Keep dependencies locked and retry a failed download rather than skipping checks.
 - **Database authentication after deleting local config:** existing volumes retain

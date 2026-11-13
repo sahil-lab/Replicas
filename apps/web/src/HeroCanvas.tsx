@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { createHeroRenderer, type HeroRenderer } from './heroRenderer'
-import { subscribeScroll, useMotionEnabled } from './motion'
-import { StackIllustration } from './StackIllustration'
+import { subscribeScroll } from './frame'
+import { useMotionEnabled } from './motion'
+import { createStackRenderer, type StackRenderer } from './stackRenderer'
+import { StackSchematic } from './StackSchematic'
 
 type Props = {
   state: 'loading' | 'ready' | 'error'
@@ -14,12 +15,12 @@ const looks = {
   error: { vivid: 0, energy: 0.12 },
 } as const
 
-// The real-time sculpture. Falls back to the flat illustration when WebGL is
+// The real-time sculpture. Falls back to the flat schematic when WebGL is
 // unavailable, and to a single still frame on software or slow renderers.
 export function HeroCanvas({ state, booted }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const rendererRef = useRef<HeroRenderer | null>(null)
+  const rendererRef = useRef<StackRenderer | null>(null)
   const liveRef = useRef(false)
   const introPlayedRef = useRef(false)
   const motion = useMotionEnabled()
@@ -32,7 +33,8 @@ export function HeroCanvas({ state, booted }: Props) {
       stage.dataset.gl = 'fallback'
       return
     }
-    const renderer = createHeroRenderer(canvas, {
+    const renderer = createStackRenderer(canvas, {
+      motes: true,
       onLost: () => {
         rendererRef.current = null
         stage.dataset.gl = 'fallback'
@@ -51,6 +53,10 @@ export function HeroCanvas({ state, booted }: Props) {
     rendererRef.current = renderer
     liveRef.current = !renderer.software
     stage.dataset.gl = renderer.software ? 'still' : 'live'
+    // On a GPU the stack is drawn once straight away, while the boot screen
+    // still covers the page, so the first animated frame does not have to
+    // wait for the graphics driver to prepare the drawing.
+    if (!renderer.software) renderer.still()
 
     const observer =
       typeof ResizeObserver === 'undefined'
@@ -92,8 +98,8 @@ export function HeroCanvas({ state, booted }: Props) {
 
     // The hero is out of sight once the page has scrolled past its section.
     const hero = stage.closest<HTMLElement>('.hero')
-    const extent = () => Math.max(hero?.offsetHeight ?? window.innerHeight, 1)
-    let covered = window.scrollY >= extent()
+    let extent = Math.max(hero?.offsetHeight ?? window.innerHeight, 1)
+    let covered = window.scrollY >= extent
     const sync = () => {
       const playing = !covered && !document.hidden && liveRef.current
       stage.dataset.playing = String(playing)
@@ -106,22 +112,32 @@ export function HeroCanvas({ state, booted }: Props) {
         pointerY: (event.clientY / Math.max(window.innerHeight, 1)) * 2 - 1,
       })
     }
-    const unsubscribe = subscribeScroll(() => {
-      const height = extent()
-      renderer.setTargets({ spread: Math.min(window.scrollY / height, 1) })
-      const nowCovered = window.scrollY >= height
-      if (nowCovered !== covered) {
-        covered = nowCovered
-        sync()
-      }
-    })
+    // A press anywhere over the hero sends a wave of light up the stack.
+    const press = () => {
+      if (!covered) renderer.pulse()
+    }
+    const unsubscribe = subscribeScroll(
+      (frame) => {
+        renderer.setTargets({ spread: Math.min(frame.y / extent, 1) })
+        const nowCovered = frame.y >= extent
+        if (nowCovered !== covered) {
+          covered = nowCovered
+          sync()
+        }
+      },
+      () => {
+        extent = Math.max(hero?.offsetHeight ?? window.innerHeight, 1)
+      },
+    )
     window.addEventListener('pointermove', pointer, { passive: true })
+    window.addEventListener('pointerdown', press, { passive: true })
     document.addEventListener('visibilitychange', sync)
     sync()
 
     return () => {
       unsubscribe()
       window.removeEventListener('pointermove', pointer)
+      window.removeEventListener('pointerdown', press)
       document.removeEventListener('visibilitychange', sync)
       renderer.stop()
       stage.dataset.playing = 'false'
@@ -133,10 +149,11 @@ export function HeroCanvas({ state, booted }: Props) {
       className="hero-stage"
       ref={stageRef}
       data-gl="pending"
+      data-cover=""
       aria-hidden="true"
     >
       <canvas ref={canvasRef} />
-      <StackIllustration state={state} />
+      <StackSchematic count={21} width={1} state={state} />
     </div>
   )
 }

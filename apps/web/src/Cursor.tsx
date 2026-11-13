@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { hasFinePointer, subscribeScroll, useMotionEnabled } from './motion'
+import { subscribeScroll } from './frame'
+import { hasFinePointer, useMotionEnabled } from './motion'
 
 // A ring that trails the pointer and reacts to interactive elements. The
 // native cursor stays visible; this is an enhancement for mouse users only.
@@ -18,15 +19,22 @@ export function Cursor() {
     let targetX = 0
     let targetY = 0
     let frame = 0
+    let last = 0
     let visible = false
 
-    const render = () => {
+    const render = (now: number) => {
       frame = 0
-      x += (targetX - x) * 0.22
-      y += (targetY - y) * 0.22
+      // Eased by elapsed time, so the trail is the same at any refresh rate.
+      const passed = last === 0 ? 16 : Math.min(now - last, 100)
+      const ease = 1 - Math.exp(-passed / 67)
+      last = now
+      x += (targetX - x) * ease
+      y += (targetY - y) * ease
       node.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
       if (Math.abs(targetX - x) + Math.abs(targetY - y) > 0.2) {
         frame = window.requestAnimationFrame(render)
+      } else {
+        last = 0
       }
     }
     // Shapes the ring for whatever sits under the pointer.
@@ -51,10 +59,18 @@ export function Cursor() {
       react(event.target instanceof Element ? event.target : null)
       if (frame === 0) frame = window.requestAnimationFrame(render)
     }
-    // Scrolling moves the page under a resting pointer.
-    const unsubscribe = subscribeScroll(() => {
-      if (visible) react(document.elementFromPoint(targetX, targetY))
-    })
+    // Scrolling moves the page under a resting pointer. What now sits under
+    // it is looked up before anything is written in that frame.
+    let under: Element | null = null
+    const unsubscribe = subscribeScroll(
+      () => {
+        if (visible) react(under)
+      },
+      undefined,
+      () => {
+        under = visible ? document.elementFromPoint(targetX, targetY) : null
+      },
+    )
     const leave = () => {
       visible = false
       node.dataset.visible = 'false'

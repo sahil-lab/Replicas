@@ -2,17 +2,17 @@ import { useLayoutEffect, useRef, type MouseEvent } from 'react'
 import { Icon } from './Icon'
 import {
   formatMs,
+  sectionIds,
   sections,
   stackSummary,
-  type SectionId,
   type SystemState,
 } from './model'
 import type { Motion } from './motion'
 import type { Point, Theme } from './theme'
 import { BrandMark } from './ui'
+import { useActiveSection } from './useActiveSection'
 
 type Props = {
-  active: SectionId
   system: SystemState
   theme: Theme
   onTheme: (theme: Theme, origin?: Point) => void
@@ -29,15 +29,11 @@ function originOf(event: MouseEvent<HTMLElement>): Point {
   return { x: box.left + box.width / 2, y: box.top + box.height / 2 }
 }
 
-export function Header({
-  active,
-  system,
-  theme,
-  onTheme,
-  motion,
-  onMotion,
-}: Props) {
+export function Header({ system, theme, onTheme, motion, onMotion }: Props) {
   const navRef = useRef<HTMLElement>(null)
+  // Kept here, not in the page, so that reading on into the next section
+  // redraws this bar and nothing else.
+  const active = useActiveSection(sectionIds, 'overview')
 
   // Slides the highlight under the link for the section being read.
   useLayoutEffect(() => {
